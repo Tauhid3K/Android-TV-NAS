@@ -1,178 +1,128 @@
-# Android TV NAS Setup
+# Android TV NAS Setup 
 
-### FTP Access from Windows (Anonymous)
+[![License](https://img.shields.io/badge/license-MIT-green)]  
+[![PHP](https://img.shields.io/badge/PHP-8.2-blue)]  
+[![Termux](https://img.shields.io/badge/Termux-YES-orange)]  
 
-[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![PHP](https://img.shields.io/badge/PHP-8.2-blue)](https://www.php.net/)
-[![Termux](https://img.shields.io/badge/Termux-YES-orange)](https://termux.com/)
-
-Turn your Android TV into a simple NAS server accessible from anywhere using TinyFileManager.
+> Turn your Android TV into a simple NAS server accessible via TinyFileManager or FTP.
 
 ---
 
-## Project Link
+## 🗂 Features
 
-Access your NAS folder via a web browser:
-
-> Replace with your own domain or IP if self-hosting.
-
----
-
-## Features
-
-- Local NAS folder for reading/writing files
-- Web-based access via **TinyFileManager**
-- Clean interface with custom folder labels
-- Works with internal storage or an SD card (Termux-accessible folder)
-- Supports uploads, downloads, and basic file management
+- Local NAS folder on SD card (`~/storage/external-1`)  
+- Web-based access via TinyFileManager  
+- Anonymous FTP access for Windows  
+- Clean interface with custom folder labels  
+- Supports uploads, downloads, and basic file management  
 
 ---
 
-## Setup Steps
+## 🏗 Setup Steps
 
-### 1) Install Termux on Android TV
+### 1. Install Termux on Android TV
 
-Install from the official source: https://termux.com/
+- Install Termux from the official source.
 
-### 2) Enable storage access
+---
 
-Run:
+### 2. Set up storage access
 
 ```bash
 termux-setup-storage
-```
 
-This creates shortcuts like:
 
-- `~/storage/shared` → internal storage
-- `~/storage/external-1` → app-specific SD card folder (Termux-accessible)
+This creates:
 
-### 3) Create your NAS folder
+~/storage/shared    → internal storage
+~/storage/external-1 → SD card folder accessible to Termux
 
-Here is an auto-start boot script example:
+3. Install TinyFileManager
 
-```bash
-mkdir -p ~/nas
-chmod 777 ~/nas
-#!/bin/bash
-service pyftpdlib start
-```
+Copy tinyfilemanager.php into your web root (htdocs/)
 
-### 4) Install TinyFileManager
+Optionally create tinyfilemanager_nas.php for custom folder labels:
 
-- Copy `tinyfilemanager.php` into your web root (e.g. `htdocs/`)
-- (Optional) create a separate file like `tinyfilemanager_nas.php` for custom folder labels
-
-Example folder mapping in PHP:
-
-```php
 <?php
 $root = array(
-    'NAS Folder' => getenv('HOME') . '/nas'
+    'NAS Folder' => getenv('HOME') . '/storage/external-1'
 );
+$config['enable_webdav'] = true; // enable WebDAV for network access
 ?>
-```
 
-### 5) Start your web server
-
-Example:
-
-```bash
+4. Start your web server
 apachectl start
 php-fpm
-```
 
-### 6) Access your NAS
 
-Open in your browser:
+Access in browser:
 
-- `https://your-domain.com/tinyfilemanager.php`
+http://<Android-TV-IP>/tinyfilemanager.php
 
-> Only the NAS folder is shared. Other storage folders are restricted by Android permissions.
 
----
+Only the NAS folder is shared; other storage folders are restricted by Android permissions.
 
-## FTP Access from Windows (Anonymous)
+🖥 FTP Access from Windows (Anonymous)
 
-### Start the FTP server (SD card folder)
-
-Run this in Termux:
-
-```bash
-cd ~/storage/external-1
+Start the FTP server for your SD card folder:
 
 # Run in background silently
 nohup python3 -m pyftpdlib -p 2121 -w -i <Android-TV-IP> > /dev/null 2>&1 &
-```
 
-Replace `<Android-TV-IP>` with your Android TV’s local IP (example: `192.168.110.176`).
 
-**Flags:**
-- `-p 2121` → FTP port
-- `-w` → enable write (upload/delete)
-- `-i` → bind to your TV’s local IP
+Replace <Android-TV-IP> with your Android TV’s local IP (example: 192.168.110.176)
 
-### Connect from Windows
+Windows can connect via:
 
-Open in File Explorer:
+ftp://<Android-TV-IP>:2121
 
-- `ftp://<Android-TV-IP>:2121`
 
-Then choose **Log on anonymously** (no username/password needed).
+Choose Log on anonymously
 
-### Auto-start FTP on boot (Termux:Boot)
+You do not need a username or password
 
-1) Install **Termux:Boot** and enable it.
+Auto-start FTP on boot
 
-2) Create/edit the boot script:
+Add the FTP command to your Termux boot script:
 
-```bash
-nano ~/.termux/boot/start-ftp
-```
+nano ~/.termux/boot/start-sshd
 
-3) Add:
 
-```bash
-#!/data/data/com.termux/files/usr/bin/bash
-cd ~/storage/external-1
+Make the script executable:
 
-nohup python3 -m pyftpdlib -p 2121 -w -i <Android-TV-IP> > /dev/null 2>&1 &
-```
+chmod +x ~/.termux/boot/start-sshd
 
-4) Make it executable:
 
-```bash
-chmod +x ~/.termux/boot/start-ftp
-```
+Now FTP will start automatically whenever Termux boots, giving Windows instant access to your SD card folder.
 
-Now FTP will start automatically whenever Termux starts (after boot), giving Windows instant access to your SD card folder.
+⚠️ Limitations
 
----
+USB drives and full SD card directories are restricted by Android
 
-## Limitations
+Termux can only access:
 
-- USB drives and full SD card directories are restricted by Android
-- Termux can only access:
-  - `~/storage/shared` (internal storage)
-  - `~/storage/external-1` (Termux folder on SD card)
-- Full SD card access requires root or SAF permissions
+~/storage/shared (internal storage)
+~/storage/external-1 (SD card folder)
 
----
 
-## Security Considerations
+Full SD card access requires root or SAF permissions
 
-- Do **not** expose your NAS publicly without authentication
-- Use HTTPS and/or a VPN for remote access
-- Avoid putting sensitive info (IPs, passwords) in the repo
+🔐 Security Considerations
 
----
+FTP is anonymous; only use on trusted LAN
 
-## Summary
+For remote access, use HTTPS or VPN
+
+Sensitive info like IPs are not included
+
+📌 Summary
 
 This setup allows you to:
 
-- Turn your Android TV into a NAS server
-- Share **one specific folder** via the web
-- Upload, download, and manage files
-- Keep your storage organized and more secure
-This will ensure that the FTP service starts automatically at boot time.
+Turn your Android TV into a NAS server
+
+Access a specific folder via browser or Windows Explorer
+
+Upload, download, and manage files safely
+
+Keep your storage organized and secure
