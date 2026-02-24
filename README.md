@@ -12,8 +12,6 @@
 
 Access your NAS folder via a web browser:
 
-- https://tauhidshahriar.xyz/tinyfilemanager.php
-
 > Replace with your own domain or IP if self-hosting.
 
 ---
