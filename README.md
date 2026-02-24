@@ -86,6 +86,55 @@ Open in your browser:
 
 ---
 
+## FTP Access from Windows (Anonymous)
+
+### Start the FTP server in Termux
+
+```bash
+cd ~/storage/external-1
+python3 -m pyftpdlib -p 2121 -w -i <Android-TV-IP> &
+```
+
+- `-p 2121` → FTP port
+- `-w` → enable write (upload/delete)
+- `<Android-TV-IP>` → your TV’s local IP (example: `192.168.110.176`)
+
+### Connect from Windows Explorer
+
+Open:
+
+- `ftp://<Android-TV-IP>:2121`
+
+Then:
+
+- Choose **Log on anonymously**
+- You do not need a username or password
+
+### Auto-start FTP with Termux:Boot
+
+Edit your Termux boot script:
+
+```bash
+nano ~/.termux/boot/start-sshd
+```
+
+Add at the end:
+
+```bash
+# Start FTP server for SD card folder in background
+nohup python3 -m pyftpdlib -p 2121 -w -i <Android-TV-IP> &
+```
+
+Make executable:
+
+```bash
+chmod +x ~/.termux/boot/start-sshd
+```
+
+Now the FTP server starts automatically whenever Termux boots, giving Windows Explorer instant access to your SD card folder.
+
+---
+
 ## Limitations
 
 - USB drives and full SD card directories are restricted by Android
