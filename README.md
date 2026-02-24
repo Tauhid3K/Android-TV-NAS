@@ -1,13 +1,12 @@
 # Android TV NAS Setup
+
 ### FTP Access from Windows (Anonymous)
 
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![PHP](https://img.shields.io/badge/PHP-8.2-blue)](https://www.php.net/)
 [![Termux](https://img.shields.io/badge/Termux-YES-orange)](https://termux.com/)
-To access the FTP server anonymously from a Windows machine, you can use the following command:
 
-> Turn your Android TV into a simple NAS server accessible from anywhere using TinyFileManager.
-`nohup ftp -n -v ftp://yourftpserver.com &`  
+Turn your Android TV into a simple NAS server accessible from anywhere using TinyFileManager.
 
 ---
 
@@ -49,6 +48,7 @@ This creates shortcuts like:
 - `~/storage/external-1` → app-specific SD card folder (Termux-accessible)
 
 ### 3) Create your NAS folder
+
 Here is an auto-start boot script example:
 
 ```bash
@@ -94,50 +94,58 @@ Open in your browser:
 
 ## FTP Access from Windows (Anonymous)
 
-### Start the FTP server in Termux
+### Start the FTP server (SD card folder)
+
+Run this in Termux:
 
 ```bash
 cd ~/storage/external-1
-python3 -m pyftpdlib -p 2121 -w -i <Android-TV-IP> &
+
+# Run in background silently
+nohup python3 -m pyftpdlib -p 2121 -w -i <Android-TV-IP> > /dev/null 2>&1 &
 ```
 
+Replace `<Android-TV-IP>` with your Android TV’s local IP (example: `192.168.110.176`).
+
+**Flags:**
 - `-p 2121` → FTP port
 - `-w` → enable write (upload/delete)
-- `<Android-TV-IP>` → your TV’s local IP (example: `192.168.110.176`)
+- `-i` → bind to your TV’s local IP
 
-### Connect from Windows Explorer
+### Connect from Windows
 
-Open:
+Open in File Explorer:
 
 - `ftp://<Android-TV-IP>:2121`
 
-Then:
+Then choose **Log on anonymously** (no username/password needed).
 
-- Choose **Log on anonymously**
-- You do not need a username or password
+### Auto-start FTP on boot (Termux:Boot)
 
-### Auto-start FTP with Termux:Boot
+1) Install **Termux:Boot** and enable it.
 
-Edit your Termux boot script:
-
-```bash
-nano ~/.termux/boot/start-sshd
-```
-
-Add at the end:
+2) Create/edit the boot script:
 
 ```bash
-# Start FTP server for SD card folder in background
-nohup python3 -m pyftpdlib -p 2121 -w -i <Android-TV-IP> &
+nano ~/.termux/boot/start-ftp
 ```
 
-Make executable:
+3) Add:
 
 ```bash
-chmod +x ~/.termux/boot/start-sshd
+#!/data/data/com.termux/files/usr/bin/bash
+cd ~/storage/external-1
+
+nohup python3 -m pyftpdlib -p 2121 -w -i <Android-TV-IP> > /dev/null 2>&1 &
 ```
 
-Now the FTP server starts automatically whenever Termux boots, giving Windows Explorer instant access to your SD card folder.
+4) Make it executable:
+
+```bash
+chmod +x ~/.termux/boot/start-ftp
+```
+
+Now FTP will start automatically whenever Termux starts (after boot), giving Windows instant access to your SD card folder.
 
 ---
 
