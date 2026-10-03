@@ -1,180 +1,373 @@
-# Android TV NAS Setup
+# Android TV NAS
 
-Turn an Android TV box into a lightweight NAS — accessible over **FTP** (LAN),
-**Tiny File Manager** (web, via LAN or Cloudflare Tunnel), and **SSH** (remote terminal).
+Turn an Android TV box into a lightweight **personal NAS** using Termux.
 
-![License](https://img.shields.io/badge/license-MIT-green)
-![PHP](https://img.shields.io/badge/PHP-8.x-blue)
-![Termux](https://img.shields.io/badge/Termux-Yes-orange)
-![Platform](https://img.shields.io/badge/Platform-Android-lightgrey)
+The NAS provides network access to the Android TV box's internal storage and connected USB/SSD/HDD drives through FTP, along with SSH access for remote administration.
+
+External drives are automatically detected through Android's `/storage` mount point, so no per-drive configuration is required.
 
 ---
 
 ## Features
 
-- **Internal storage — read/write** over FTP
-- **External drives (USB / SSD / HDD) — read-only** over FTP
-- **Tiny File Manager** web UI for browsing and downloads
-- **SSH access** for remote terminal control
-- **Cloudflare Tunnel** for secure remote access (no port forwarding)
-- **Auto-start on boot** via Termux:Boot
-- Auto-detected drives appear automatically (no per-drive setup)
+- Internal storage **read/write** over FTP
+- External USB/SSD/HDD **read/write** over FTP with root access
+- Automatic detection of mounted external drives
+- SSH remote terminal access
+- Automatic startup using Termux:Boot
+- File transfer over the local network
+- Direct media streaming from FTP
+- Multiple external drives supported simultaneously
+- No per-drive configuration or watcher script required
 
 ---
 
-## Requirements
+## Architecture
 
-- Android TV box (or any Android device) — **no root**
-- [Termux](https://github.com/termux/termux-app) + [Termux:Boot](https://github.com/termux/termux-boot)
-- Packages: `openssh`, `apache2`, `php`, `php-fpm`, `mariadb`, `python`, `cloudflared`
-- Python package: `pyftpdlib` (`pip install pyftpdlib`)
+```text
+                    Android TV Box
+                          │
+                    ┌─────┴─────┐
+                    │   Termux  │
+                    └─────┬─────┘
+                          │
+              ┌───────────┴───────────┐
+              │                       │
+          FTP :1024               FTP :1025
+              │                       │
+              ▼                       ▼
+       Internal Storage            /storage
+              │                       │
+              │              ┌────────┼────────┐
+              │              │        │        │
+              │             USB      SSD      HDD
+              │
+              └──────── Read/Write ────────────┘
 
----
-
-## Important limitation (read this first)
-
-Android mounts external USB/SSD/HDD volumes **read-only** for all
-non-root apps — including Termux. This is enforced by the OS, not Termux.
-
-| Location | FTP read | FTP write | Web read | Web write |
-|---|---|---|---|---|
-| `~/storage/shared` (internal) | ✅ | ✅ | ✅ | ✅ |
-| `/storage/<UUID>` (external drive) | ✅ | ❌ | ✅ | ❌ |
-| `/storage/<UUID>/Android/data/com.termux/files/` | ✅ | ✅ | ✅ | ✅ |
-
-**Consequence:** the external-drive FTP is intentionally read-only.
-For write access to external drives you need root, or an Android file-manager
-app with a built-in server (Material Files, Solid Explorer, etc.).
-
----
-
-## 1. Install Termux and enable storage
-
-```bash
-termux-setup-storage
+                    SSH :8022
+                       │
+                       ▼
+                 Remote Terminal
 ```
 
-This creates:
+---
 
-- `~/storage/shared` → internal storage
-- `~/storage/external-1` → first SD/USB volume (symlink)
+# Requirements
+
+## Hardware
+
+- Android TV box or Android device
+- Wi-Fi or Ethernet connection
+- USB/SSD/HDD for external NAS storage
+- **Root access for external-drive write support**
+
+Example hardware:
+
+```text
+X96 Mini P281
+Amlogic S905W
+2 GB RAM
+Android 7.1.2
+```
+
+The setup can be adapted to other Android devices.
 
 ---
 
-## 2. Install packages
+## Software
+
+Install:
+
+- Termux
+- Termux:Boot
+
+Required packages:
 
 ```bash
 pkg update && pkg upgrade
-pkg install openssh apache2 php php-fpm mariadb python cloudflared
+pkg install openssh python
+```
+
+Install the FTP server:
+
+```bash
 pip install pyftpdlib
 ```
 
 ---
 
-## 3. Configure Tiny File Manager
+# 1. Enable Termux Storage
 
-1. Place `tinyfilemanager.php` in the Apache web root:
-   `$PREFIX/share/apache2/default-site/htdocs/`
-2. Set the root path inside the file:
-   ```php
-   $root_path = $_SERVER['DOCUMENT_ROOT'];
-   $root_url  = '';
-   $use_auth  = true;
-   ```
-3. Add a password:
-   ```bash
-   php -r "echo password_hash('YOUR_PASSWORD', PASSWORD_BCRYPT), PHP_EOL;"
-   ```
-   Paste the hash into `$auth_users`:
-   ```php
-   $auth_users = [
-       'youruser' => '$2y$10$...paste-hash-here...',
-   ];
-   ```
-4. Create one symlink so the web UI can see all storage:
-   ```bash
-   ln -sfn /storage $PREFIX/share/apache2/default-site/htdocs/storage
-   ```
+Run:
 
-Open in a browser:
-
+```bash
+termux-setup-storage
 ```
-http://<android-tv-ip>/tinyfilemanager.php
+
+Allow the requested Android storage permission.
+
+Termux will create:
+
+```text
+~/storage/
+├── shared
+├── dcim
+├── downloads
+├── movies
+├── music
+├── pictures
+└── external-*
+```
+
+The important path for internal shared storage is:
+
+```text
+~/storage/shared
+```
+
+Android's mounted storage volumes are available under:
+
+```text
+/storage/
+```
+
+For example:
+
+```text
+/storage/46A4-29D7
+/storage/44603D44603D3DCC
+/storage/emulated
+```
+
+The actual directory names depend on the filesystem UUIDs.
+
+---
+
+# 2. Check Mounted Drives
+
+Run:
+
+```bash
+ls -la /storage
+```
+
+You may see:
+
+```text
+44603D44603D3DCC
+46A4-29D7
+emulated
+self
+```
+
+You can also inspect mounts:
+
+```bash
+mount | grep /storage
+```
+
+Example:
+
+```text
+/dev/fuse on /storage/46A4-29D7
+/dev/fuse on /storage/44603D44603D3DCC
+/dev/fuse on /storage/emulated
 ```
 
 ---
 
-## 4. Start FTP servers
+# 3. FTP Servers
 
-Two servers run side by side:
+This NAS uses two FTP servers.
 
-| Port | Serves | Access |
+| Port | Location | Access |
 |---|---|---|
-| **1024** | `~/storage/shared` (internal) | read/write |
-| **1025** | `/storage` (all drives) | read-only |
-
-```bash
-# Internal — writable
-python -m pyftpdlib -p 1024 -w -i <android-tv-ip> \
-    -d ~/storage/shared -u youruser -P yourpassword &
-
-# External — read-only, auto-detects every plugged drive
-python -m pyftpdlib -p 1025 -i <android-tv-ip> \
-    -d /storage -u youruser -P yourpassword &
-```
-
-Because the second server roots at `/storage/`, any USB/SSD/HDD you plug in
-appears automatically under its UUID — no watcher script, no manual linking.
+| **1024** | Internal shared storage | Read/Write |
+| **1025** | `/storage` | Read/Write with root |
 
 ---
 
-## 5. SSH access
+## FTP 1024 — Internal Storage
 
-Termux runs an SSH server on port **8022** (non-root apps can't bind to port 22).
+The first FTP server exposes:
 
-### 5.1 Set up SSH in Termux
+```text
+~/storage/shared
+```
+
+Start it manually:
 
 ```bash
-# Set a password for your Termux user
-passwd
+python3 -m pyftpdlib \
+-p 1024 \
+-w \
+-i <android-tv-ip> \
+-d ~/storage/shared \
+-u youruser \
+-P yourpassword &
+```
 
-# Start the SSH server (also starts automatically on boot)
+The `-w` option enables write access.
+
+Example:
+
+```text
+ftp://youruser@192.168.1.106:1024
+```
+
+---
+
+# 4. FTP 1025 — External Storage
+
+Android's storage restrictions normally prevent ordinary Termux processes from writing to removable storage.
+
+This setup uses root to run the external FTP server.
+
+The FTP root is:
+
+```text
+/storage
+```
+
+Start it with:
+
+```bash
+su -c 'setsid /data/data/com.termux/files/usr/bin/python3 \
+-m pyftpdlib \
+-p 1025 \
+-w \
+-i <android-tv-ip> \
+-d /storage \
+-u youruser \
+-P yourpassword \
+>/data/local/tmp/ftp1025.log 2>&1 < /dev/null &'
+```
+
+The `-w` option enables write access.
+
+The `su` command runs the server with root privileges.
+
+`setsid` detaches the FTP process from the Termux shell.
+
+---
+
+# 5. Automatic External Drive Detection
+
+The FTP server uses:
+
+```text
+/storage
+```
+
+as its root rather than a specific drive.
+
+Therefore, when Android mounts a new drive:
+
+```text
+/storage/<UUID>
+```
+
+the drive automatically becomes available through FTP.
+
+For example:
+
+```text
+/storage/
+├── 46A4-29D7/
+├── 44603D44603D3DCC/
+└── emulated/
+```
+
+Plug in another drive:
+
+```text
+/storage/
+├── 46A4-29D7/
+├── 44603D44603D3DCC/
+├── A12B-34CD/
+└── emulated/
+```
+
+No additional FTP configuration is required.
+
+---
+
+# 6. Example NAS Layout
+
+```text
+/storage/
+│
+├── 46A4-29D7/
+│   ├── Movies/
+│   ├── Music/
+│   └── Documents/
+│
+├── 44603D44603D3DCC/
+│   ├── Backup/
+│   ├── ISO/
+│   └── Videos/
+│
+└── emulated/
+    └── 0/
+        ├── DCIM/
+        ├── Download/
+        ├── Movies/
+        └── Pictures/
+```
+
+---
+
+# 7. SSH Access
+
+Termux's SSH server runs on port `8022`.
+
+Start SSH:
+
+```bash
 sshd
 ```
 
-Find your IP and username:
+Set the Termux password:
+
+```bash
+passwd
+```
+
+Find the username:
 
 ```bash
 whoami
-ifconfig | grep wlan0 -A 1
 ```
 
-### 5.2 Connect from your laptop
+Find the Wi-Fi IP:
 
-**Linux / macOS:**
+```bash
+ip -4 addr show wlan0
+```
+
+Connect from another computer:
 
 ```bash
 ssh -p 8022 <username>@<android-tv-ip>
 ```
 
-**Windows (PowerShell or Command Prompt):**
+Example:
 
-```powershell
-ssh -p 8022 <username>@<android-tv-ip>
+```bash
+ssh -p 8022 u0_a59@192.168.1.106
 ```
 
-Type `yes` to accept the host key on first connection, then enter the
-password you set with `passwd`.
+---
 
-### 5.3 (Optional) SSH key login — skip the password every time
+# 8. SSH Key Authentication
 
-On your **laptop**, generate a key if you don't have one:
+Generate a key on your computer:
 
 ```bash
 ssh-keygen -t ed25519
 ```
 
-Copy it to the TV box:
+Copy it to the Android TV box:
 
 ```bash
 ssh-copy-id -p 8022 <username>@<android-tv-ip>
@@ -183,166 +376,182 @@ ssh-copy-id -p 8022 <username>@<android-tv-ip>
 Or manually:
 
 ```bash
-cat ~/.ssh/id_ed25519.pub | ssh -p 8022 <username>@<android-tv-ip> \
-  "mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys"
+cat ~/.ssh/id_ed25519.pub | \
+ssh -p 8022 <username>@<android-tv-ip> \
+"mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys"
 ```
 
-Now this works with no password:
+After that:
 
 ```bash
 ssh -p 8022 <username>@<android-tv-ip>
 ```
 
-### 5.4 Useful SSH tips
-
-| Task | Command |
-|---|---|
-| Copy a file **to** the box | `scp -P 8022 file.txt <username>@<android-tv-ip>:~/` |
-| Copy a file **from** the box | `scp -P 8022 <username>@<android-tv-ip>:~/file.txt .` |
-| Copy a whole folder | `scp -P 8022 -r folder/ <username>@<android-tv-ip>:~/` |
-| Sync a folder (rsync) | `rsync -av -e "ssh -p 8022" folder/ <username>@<android-tv-ip>:~/` |
-| Local port forward | `ssh -p 8022 -N -f -L 8080:localhost:8080 <username>@<android-tv-ip>` |
-
-### 5.5 SSH troubleshooting
-
-- **`Connection refused`** → run `sshd` in Termux.
-- **`Permission denied`** → check username with `whoami` in Termux.
-- **`Host key verification failed`** → delete the old key:
-  `ssh-keygen -R "[<android-tv-ip>]:8022"`.
+can be used without entering the SSH password.
 
 ---
 
-## 6. Connecting from your laptop
+# 9. Connecting from a PC
 
-### 6.1 Web — Tiny File Manager
+## FileZilla
 
-Open a browser on any device on the same Wi-Fi:
+FileZilla is recommended for FTP access.
 
-```
-http://<android-tv-ip>/tinyfilemanager.php
-```
+### Internal Storage
 
-Log in with the username and password you set in step 3.
-
-### 6.2 FTP — FileZilla (recommended)
-
-Windows Explorer caches FTP sessions and merges ports, so use
-**FileZilla** for reliable access to both servers.
-
-Download: <https://filezilla-project.org>
-
-**Site 1 — Internal (read/write):**
-
-| Field | Value |
-|---|---|
-| Protocol | FTP |
-| Host | `<android-tv-ip>` |
-| Port | `1024` |
-| Encryption | Use plain FTP |
-| Logon Type | Normal |
-| User | `youruser` |
-| Password | `yourpassword` |
-
-**Site 2 — External (read-only):**
-
-| Field | Value |
-|---|---|
-| Host | `<android-tv-ip>` |
-| Port | `1025` |
-| User | `youruser` |
-| Password | `yourpassword` |
-
-Save both — switching between them is one click.
-
-### 6.3 FTP — Windows Explorer (works, but limited)
-
-Explorer merges all FTP to the same host into a single session, so you
-can't have both ports open at once. To use it:
-
-1. **Control Panel → Credential Manager → Windows Credentials**
-2. Remove any entry for `<android-tv-ip>`
-3. Close **all** Explorer windows
-4. Open a fresh window and enter in the address bar:
-
-```
-ftp://youruser:yourpassword@<android-tv-ip>:1024
+```text
+Protocol:    FTP
+Host:        <android-tv-ip>
+Port:        1024
+Encryption:  Use plain FTP
+Logon Type:  Normal
+User:        youruser
+Password:    yourpassword
 ```
 
-When you want the other port, log off (right-click → **Log Off**) first,
-then connect to `:1025`.
+### External Storage
 
-### 6.4 FTP — PowerShell (fastest test)
-
-```powershell
-ftp <android-tv-ip> 1024
+```text
+Protocol:    FTP
+Host:        <android-tv-ip>
+Port:        1025
+Encryption:  Use plain FTP
+Logon Type:  Normal
+User:        youruser
+Password:    yourpassword
 ```
-
-At the `ftp>` prompt:
-
-```
-user youruser yourpassword
-ls
-bye
-```
-
-### 6.5 Stream video in VLC
-
-VLC plays directly from FTP without downloading first.
-
-**Media → Open Network Stream** → paste:
-
-```
-ftp://youruser:yourpassword@<android-tv-ip>:1025/<UUID>/path/to/file.mkv
-```
-
-Where `<UUID>` is the drive's folder name.
 
 ---
 
-## 7. Daily usage
+# 10. Linux File Manager
 
-| I want to… | Do this |
-|---|---|
-| Browse files | `http://<android-tv-ip>/tinyfilemanager.php` |
-| Upload a file (internal) | FileZilla → port **1024** → drag file |
-| Download from external drive | FileZilla → port **1025** → drag out |
-| Stream a movie | VLC → `ftp://...:1025/<UUID>/path.mkv` |
-| Run a command on the box | `ssh -p 8022 <username>@<android-tv-ip>` |
-| Copy a file to the box | `scp -P 8022 file <username>@<android-tv-ip>:~/` |
-| Check free space | `http://<android-tv-ip>/storage_info.php` |
-| Restart everything | `ssh ...` → `pkill python3; sh ~/.termux/boot/start-sshd` |
+Internal storage:
+
+```text
+ftp://youruser@<android-tv-ip>:1024
+```
+
+External storage:
+
+```text
+ftp://youruser@<android-tv-ip>:1025
+```
+
+Example:
+
+```text
+ftp://tauhid@192.168.1.106:1024
+ftp://tauhid@192.168.1.106:1025
+```
+
+Enter the FTP password when requested.
 
 ---
 
-## 8. Auto-start on boot (Termux:Boot)
+# 11. Command-Line FTP Test
 
-Create `~/.termux/boot/start-sshd`:
+Test internal storage:
+
+```bash
+curl -u youruser:yourpassword \
+ftp://<android-tv-ip>:1024/
+```
+
+Test external storage:
+
+```bash
+curl -u youruser:yourpassword \
+ftp://<android-tv-ip>:1025/
+```
+
+---
+
+# 12. Streaming Media
+
+FTP can also be used to stream media directly.
+
+For example, VLC can open:
+
+```text
+ftp://youruser:yourpassword@<android-tv-ip>:1025/<UUID>/Movies/movie.mkv
+```
+
+In VLC:
+
+```text
+Media → Open Network Stream
+```
+
+Paste the FTP URL.
+
+---
+
+# 13. Automatic Startup
+
+Install Termux:Boot and create:
+
+```text
+~/.termux/boot/start-sshd
+```
+
+Example:
 
 ```bash
 #!/data/data/com.termux/files/usr/bin/sh
 
-sshd
+# ============================================================
+# Termux:Boot - Android TV NAS
+# ============================================================
 
-pgrep php-fpm >/dev/null || php-fpm &
-apachectl start
-pgrep mariadbd >/dev/null || mariadbd-safe &
-
-cloudflared tunnel run <your-tunnel-name> &
-
-IP=$(ip -4 addr show wlan0 | grep -oP '(?<=inet\s)\d+(\.\d+){3}')
+# Keep device awake
 termux-wake-lock
 
-# FTP 1 — internal, writable
-pgrep -f "pyftpdlib.*1024" >/dev/null || \
-  nohup python3 -m pyftpdlib -p 1024 -w -i $IP \
-    -d /data/data/com.termux/files/home/storage/shared \
-    -u youruser -P yourpassword > /dev/null 2>&1 &
+# ------------------------------------------------------------
+# Detect current Wi-Fi IP
+# ------------------------------------------------------------
+IP=$(ip -4 addr show wlan0 | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | head -1)
 
-# FTP 2 — all storage, read-only
-pgrep -f "pyftpdlib.*1025" >/dev/null || \
-  nohup python3 -m pyftpdlib -p 1025 -i $IP \
-    -d /storage \
-    -u youruser -P yourpassword > /dev/null 2>&1 &
+if [ -z "$IP" ]; then
+    exit 1
+fi
+
+# ------------------------------------------------------------
+# SSH
+# ------------------------------------------------------------
+if ! pgrep -x sshd >/dev/null 2>&1; then
+    sshd >/dev/null 2>&1
+fi
+
+# ------------------------------------------------------------
+# FTP 1024
+# Internal storage - Read/Write
+# ------------------------------------------------------------
+if ! ss -ltn | grep -q ":1024 "; then
+    nohup python3 -m pyftpdlib \
+        -p 1024 \
+        -w \
+        -i "$IP" \
+        -d /data/data/com.termux/files/home/storage/shared \
+        -u tauhid \
+        -P ts1609 \
+        >/data/data/com.termux/files/home/ftp1024.log 2>&1 &
+fi
+
+# ------------------------------------------------------------
+# FTP 1025
+# All mounted storage - ROOT + Read/Write
+# ------------------------------------------------------------
+if ! ss -ltn | grep -q ":1025 "; then
+    su -c "setsid /data/data/com.termux/files/usr/bin/python3 \
+        -m pyftpdlib \
+        -p 1025 \
+        -w \
+        -i $IP \
+        -d /storage \
+        -u tauhid \
+        -P ts1609 \
+        >/data/local/tmp/ftp1025.log 2>&1 < /dev/null &"
+fi
 ```
 
 Make it executable:
@@ -351,88 +560,251 @@ Make it executable:
 chmod +x ~/.termux/boot/start-sshd
 ```
 
-Open Termux:Boot once from your app drawer so Android registers it.
+Open Termux:Boot at least once after installation.
+
+The NAS services will then start automatically when Android boots.
 
 ---
 
-## 9. Cloudflare Tunnel (optional, remote access)
+# 14. Check NAS Services
+
+Check the listening ports:
 
 ```bash
-cloudflared tunnel login
-cloudflared tunnel create <tunnel-name>
-cloudflared tunnel route dns <tunnel-name> nas.example.com
-cloudflared tunnel run <tunnel-name>
+ss -ltn | grep -E ':8022|:1024|:1025'
 ```
 
-In the Cloudflare Zero Trust dashboard, add an ingress rule:
+Expected:
 
-| Public hostname | Service |
-|---|---|
-| `nas.example.com` | `http://localhost:8080` (Apache) |
+```text
+:8022   SSH
+:1024   Internal FTP
+:1025   External FTP
+```
 
-**Do not tunnel FTP** — plain FTP sends credentials in cleartext. Keep FTP LAN-only.
+Check FTP processes:
+
+```bash
+pgrep -af pyftpdlib
+```
+
+The root FTP process may not appear in a normal Termux process listing.
+
+Check it as root:
+
+```bash
+su -c 'ss -ltn | grep ":1025"'
+```
 
 ---
 
-## 10. Pin the device IP (recommended)
+# 15. Restart NAS Services
 
-Your TV box gets a new IP from DHCP on every reconnect, which breaks bookmarks
-and tunnel configs. Fix it in your router:
+SSH into the box:
 
-- Find **DHCP Reservation / Static Lease**
-- Bind the TV box's MAC to a fixed IP
+```bash
+ssh -p 8022 <username>@<android-tv-ip>
+```
+
+Then run:
+
+```bash
+~/.termux/boot/start-sshd
+```
+
+Check:
+
+```bash
+ss -ltn | grep -E ':8022|:1024|:1025'
+```
+
+Avoid manually starting another FTP server if the port is already listening.
 
 ---
 
-## Repository layout
+# 16. Storage Permissions
 
+Android's storage permissions vary by Android version and manufacturer.
+
+Without root, Termux generally has:
+
+- Full access to its own application data
+- Shared storage access after `termux-setup-storage`
+- Restricted access to removable storage
+
+With root, the external FTP server can access mounted storage directly.
+
+This project therefore uses:
+
+```bash
+su -c
 ```
+
+for the external FTP server.
+
+### Important
+
+The external-drive write functionality depends on:
+
+1. Root access being available
+2. The Android device allowing root access to the mounted filesystem
+3. The drive being mounted under `/storage`
+
+---
+
+# 17. Security
+
+## FTP is unencrypted
+
+FTP transmits credentials and data without encryption.
+
+Do **not** expose ports `1024` or `1025` directly to the public internet.
+
+Use FTP only on a trusted LAN.
+
+For remote file access, prefer:
+
+- SFTP over SSH
+- VPN
+- WireGuard
+- Tailscale
+
+---
+
+## SSH
+
+Use SSH keys instead of passwords whenever possible.
+
+Do not expose port `8022` directly to the public internet unless properly secured.
+
+---
+
+## Root FTP
+
+The external FTP server runs with root privileges.
+
+This is powerful and potentially dangerous.
+
+A compromised FTP account could potentially have access to files that a normal Termux process could not modify.
+
+Use a strong FTP password and keep the service LAN-only.
+
+---
+
+# 18. Limitations
+
+- External-drive write access requires root.
+- Android storage behavior depends on the device and Android version.
+- FTP is unencrypted.
+- USB storage may disconnect or remount depending on power and hardware.
+- A low-cost Android TV box is not equivalent to a dedicated NAS.
+- Network speed depends on the TV box's Wi-Fi/Ethernet hardware.
+- Multiple simultaneous transfers may be limited by CPU, USB, storage, and network performance.
+- SSH uses port `8022` because normal Android applications cannot bind to privileged port `22`.
+- External drives are identified by their Android mount/UUID directory names.
+
+---
+
+# 19. Recommended Network Setup
+
+For a stable NAS, reserve the TV box's IP address in your router.
+
+For example:
+
+```text
+Android TV box
+       │
+       └── DHCP reservation
+               │
+               ▼
+        192.168.1.106
+```
+
+Then the NAS can consistently be accessed using:
+
+```text
+FTP:
+ftp://<user>@192.168.1.106:1024
+ftp://<user>@192.168.1.106:1025
+
+SSH:
+ssh -p 8022 <user>@192.168.1.106
+```
+
+A DHCP reservation is preferred over manually configuring a static IP inside Android.
+
+---
+
+# 20. Repository Layout
+
+```text
 .
 ├── README.md
-├── start-sshd              # Termux:Boot startup script
-├── tinyfilemanager.php     # web UI (or link to upstream)
-├── storage_info.php        # shows free/total space for all volumes
+├── start-sshd
+├── storage_info.php
 ├── .gitignore
 └── LICENSE
 ```
 
-### `.gitignore`
+`storage_info.php` is optional and can be used as a storage health/status page if you want a lightweight storage information endpoint.
 
+---
+
+# 21. Example NAS Workflow
+
+### Upload to internal storage
+
+```text
+PC
+ │
+ ▼
+FTP :1024
+ │
+ ▼
+~/storage/shared
 ```
-*.json
-.env
-*.key
-*.pem
-*.log
+
+### Upload to external SSD
+
+```text
+PC
+ │
+ ▼
+FTP :1025
+ │
+ ▼
+/storage/<UUID>/
+ │
+ ▼
+External SSD
 ```
 
-### `storage_info.php` (optional)
+### Stream a movie
 
-Lists internal storage plus every mounted external volume by reading
-`/proc/mounts`. Useful as a health-check page.
+```text
+VLC
+ │
+ ▼
+FTP :1025
+ │
+ ▼
+/storage/<UUID>/Movies/movie.mkv
+```
+
+### Manage the server
+
+```text
+PC
+ │
+ ▼
+SSH :8022
+ │
+ ▼
+Termux
+```
 
 ---
 
-## Limitations
-
-- External drives are **read-only** for non-root apps (Android scoped storage).
-- Android may block writes even inside `Android/data/` on some OEM ROMs.
-- FTP is unencrypted — LAN only.
-- Cloudflare tunnel exposes HTTP services only; FTP is not tunneled.
-- SSH on port **8022**, not 22 (Android restriction on privileged ports).
-
----
-
-## Security notes
-
-- Use a strong FTP password; the server is reachable by anything on the LAN.
-- Protect Tiny File Manager with `$use_auth = true` and a bcrypt hash.
-- Never expose plain FTP to the internet.
-- Prefer **SSH keys** over passwords for SSH login.
-- Consider a VPN (WireGuard, Tailscale) instead of opening more ports.
-
----
-
-## License
+# License
 
 MIT
